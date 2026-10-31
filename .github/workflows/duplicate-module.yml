@@ -1,0 +1,43 @@
+name: Create Neural Harmonic Enhancer
+
+on:
+  push:
+    branches:
+      - neural-harmonic-enhancer
+
+permissions:
+  contents: write
+
+jobs:
+  duplicate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Duplicate DSP module
+        run: |
+          if [ -d "neural-harmonic-enhancer" ]; then
+            echo "Module already exists"
+            exit 1
+          fi
+
+          cp -R sample-dsp-filter neural-harmonic-enhancer
+
+      - name: Register new module
+        run: |
+          if ! grep -q 'include(":neural-harmonic-enhancer")' settings.gradle.kts; then
+            echo 'include(":neural-harmonic-enhancer")' >> settings.gradle.kts
+          fi
+
+      - name: Save changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add neural-harmonic-enhancer settings.gradle.kts
+
+          git commit -m "Create Neural Harmonic Enhancer module"
+
+          git push
