@@ -4,40 +4,73 @@ on:
   push:
     branches:
       - neural-harmonic-enhancer
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   duplicate:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: neural-harmonic-enhancer
+
+      - name: Configure Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
 
       - name: Duplicate DSP module
         run: |
-          if [ -d "neural-harmonic-enhancer" ]; then
-            echo "Module already exists"
+          set -e
+
+          if [ ! -d "sample-dsp-filter" ]; then
+            echo "ERROR: sample-dsp-filter does not exist"
             exit 1
           fi
 
-          cp -R sample-dsp-filter neural-harmonic-enhancer
-
-      - name: Register new module
-        run: |
-          if ! grep -q 'include(":neural-harmonic-enhancer")' settings.gradle.kts; then
-            echo 'include(":neural-harmonic-enhancer")' >> settings.gradle.kts
+          if [ ! -d "neural-harmonic-enhancer" ]; then
+            cp -R sample-dsp-filter neural-harmonic-enhancer
+            echo "DSP module duplicated successfully"
+          else
+            echo "DSP module already exists"
           fi
 
-      - name: Save changes
+      - name: Register module in Gradle
+        run: |
+          if ! grep -Fq 'include(":neural-harmonic-enhancer")' settings.gradle.kts; then
+            printf '\ninclude(":neural-harmonic-enhancer")\n' >> settings.gradle.kts
+          fi
+
+      - name: Commit generated module
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add neural-harmonic-enhancer settings.gradle.kts
 
-          git commit -m "Create Neural Harmonic Enhancer module"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Create Neural Harmonic Enhancer module"
+            git push origin HEAD:neural-harmonic-enhancer
+          fi
 
-          git push
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :neural-harmonic-enhancer:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Neural-Harmonic-Enhancer-APK
+          path: neural-harmonic-enhancer/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
