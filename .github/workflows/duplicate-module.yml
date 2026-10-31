@@ -1,0 +1,286 @@
+name: Neural Harmonic Enhancer - Full Setup
+
+on:
+  push:
+    branches:
+      - neural-harmonic-enhancer
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: neural-harmonic-enhancer-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  setup-and-build:
+    name: Create, Configure, Test and Build
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      # --------------------------------------------------
+      # 1. DOWNLOAD REPOSITORY
+      # --------------------------------------------------
+
+      - name: Checkout development branch
+        uses: actions/checkout@v4
+        with:
+          ref: neural-harmonic-enhancer
+          fetch-depth: 0
+
+      # --------------------------------------------------
+      # 2. JAVA AND ANDROID ENVIRONMENT
+      # --------------------------------------------------
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare Gradle
+        run: chmod +x gradlew
+
+      # --------------------------------------------------
+      # 3. DUPLICATE ORIGINAL DSP MODULE
+      # --------------------------------------------------
+
+      - name: Create Neural Harmonic Enhancer module
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -d "sample-dsp-filter" ]; then
+            echo "ERROR: Original DSP template not found."
+            exit 1
+          fi
+
+          if [ ! -d "neural-harmonic-enhancer" ]; then
+            cp -R sample-dsp-filter neural-harmonic-enhancer
+            echo "New module created."
+          else
+            echo "Module already exists. Preserving existing files."
+          fi
+
+      # --------------------------------------------------
+      # 4. CONFIGURE UNIQUE PLUGIN IDENTITY
+      # --------------------------------------------------
+
+      - name: Configure plugin identity and metadata
+        shell: bash
+        run: |
+          set -e
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          module = Path("neural-harmonic-enhancer")
+
+          build_file = module / "build.gradle.kts"
+          manifest_file = module / "src/main/AndroidManifest.xml"
+          strings_file = module / "src/main/res/values/strings.xml"
+          plugin_file = (
+              module /
+              "src/main/java/com/example/bitperfect/plugin/dspfilter/DspFilterPlugin.kt"
+          )
+
+          application_id = "com.fabiangs.bitperfect.neuralharmonicenhancer"
+
+          # Android application identity
+          build = build_file.read_text()
+
+          build = build.replace(
+              'applicationId = "com.example.bitperfect.plugin.dspfilter"',
+              f'applicationId = "{application_id}"'
+          )
+
+          build_file.write_text(build)
+
+          # Plugin discovery metadata
+          manifest = manifest_file.read_text()
+
+          manifest = manifest.replace(
+              'android:value="com.example.bitperfect.plugin.dspfilter"',
+              f'android:value="{application_id}"'
+          )
+
+          manifest = manifest.replace(
+              'android:value="dsp_filter_nav"',
+              'android:value="neural_harmonic_enhancer_nav"'
+          )
+
+          manifest = manifest.replace(
+              'android:value="dsp_settings"',
+              'android:value="neural_harmonic_settings"'
+          )
+
+          manifest_file.write_text(manifest)
+
+          # Visible Android application and navigation names
+          strings = strings_file.read_text()
+
+          strings = strings.replace(
+              "Bitperfect DSP Parametric Filter",
+              "Neural Harmonic Enhancer"
+          )
+
+          strings = strings.replace(
+              "Parametric Filter DSP",
+              "Neural Harmonic Enhancer"
+          )
+
+          strings_file.write_text(strings)
+
+          # Plugin presentation and DSP stage identification
+          plugin = plugin_file.read_text()
+
+          plugin = plugin.replace(
+              '"sample_parametric_filter"',
+              '"neural_harmonic_enhancer"'
+          )
+
+          plugin = plugin.replace(
+              '"Parametric EQ & High-Res Gain Stage"',
+              '"Neural Harmonic Enhancer - DSP Prototype"'
+          )
+
+          plugin = plugin.replace(
+              '"Parametric DSP Filter"',
+              '"Neural Harmonic Enhancer"'
+          )
+
+          plugin = plugin.replace(
+              '"Zero-copy Linux SharedMemory real-time audio stage"',
+              '"Real-time DSP processing prototype"'
+          )
+
+          plugin_file.write_text(plugin)
+
+          print("Plugin identity configured.")
+          print("Application ID:", application_id)
+          PY
+
+      # --------------------------------------------------
+      # 5. REGISTER MODULE IN GRADLE
+      # --------------------------------------------------
+
+      - name: Register module
+        shell: bash
+        run: |
+          set -e
+
+          if ! grep -Fq 'include(":neural-harmonic-enhancer")' settings.gradle.kts; then
+            printf '\ninclude(":neural-harmonic-enhancer")\n' >> settings.gradle.kts
+          fi
+
+          echo "Gradle module registered."
+
+      # --------------------------------------------------
+      # 6. VALIDATE CONFIGURATION
+      # --------------------------------------------------
+
+      - name: Validate plugin configuration
+        shell: bash
+        run: |
+          set -e
+
+          MODULE="neural-harmonic-enhancer"
+          APP_ID="com.fabiangs.bitperfect.neuralharmonicenhancer"
+
+          test -f "$MODULE/build.gradle.kts"
+          test -f "$MODULE/src/main/AndroidManifest.xml"
+          test -f "$MODULE/src/main/java/com/example/bitperfect/plugin/dspfilter/DspFilterPlugin.kt"
+
+          grep -Fq "applicationId = \"$APP_ID\"" "$MODULE/build.gradle.kts"
+          grep -Fq "android:value=\"$APP_ID\"" "$MODULE/src/main/AndroidManifest.xml"
+          grep -Fq 'include(":neural-harmonic-enhancer")' settings.gradle.kts
+
+          grep -Fq 'com.bitperfect.plugin.BIND_PLUGIN' "$MODULE/src/main/AndroidManifest.xml"
+          grep -Fq 'com.bitperfect.plugin.CAPABILITIES' "$MODULE/src/main/AndroidManifest.xml"
+          grep -Fq 'com.bitperfect.plugin.MIN_HOST_API' "$MODULE/src/main/AndroidManifest.xml"
+
+          echo "Plugin configuration validated successfully."
+
+      # --------------------------------------------------
+      # 7. SAVE GENERATED MODULE TO GITHUB
+      # --------------------------------------------------
+
+      - name: Commit generated module
+        shell: bash
+        run: |
+          set -e
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add neural-harmonic-enhancer settings.gradle.kts
+
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit."
+          else
+            git commit -m "Create Neural Harmonic Enhancer plugin module"
+            git push origin HEAD:neural-harmonic-enhancer
+          fi
+
+      # --------------------------------------------------
+      # 8. VERIFY GRADLE PROJECT
+      # --------------------------------------------------
+
+      - name: Verify Gradle module discovery
+        run: |
+          ./gradlew --no-daemon projects
+
+      # --------------------------------------------------
+      # 9. RUN TESTS AND BUILD APKs
+      # --------------------------------------------------
+
+      - name: Run project checks and build plugin
+        run: |
+          ./gradlew \
+            --no-daemon \
+            --stacktrace \
+            check \
+            :neural-harmonic-enhancer:assembleDebug \
+            :neural-harmonic-enhancer:assembleRelease
+
+      # --------------------------------------------------
+      # 10. UPLOAD DEBUG AND RELEASE APKs
+      # --------------------------------------------------
+
+      - name: Upload plugin APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Neural-Harmonic-Enhancer-APKs
+          path: |
+            neural-harmonic-enhancer/build/outputs/apk/debug/*.apk
+            neural-harmonic-enhancer/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # --------------------------------------------------
+      # 11. GENERATE BUILD SUMMARY
+      # --------------------------------------------------
+
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "# Neural Harmonic Enhancer"
+            echo ""
+            echo "## Automated setup"
+            echo "- Module creation"
+            echo "- Gradle registration"
+            echo "- Plugin identity configuration"
+            echo "- Manifest validation"
+            echo "- Project checks"
+            echo "- Debug and Release APK builds"
+            echo ""
+            echo "## Application ID"
+            echo "com.fabiangs.bitperfect.neuralharmonicenhancer"
+          } >> "$GITHUB_STEP_SUMMARY"
